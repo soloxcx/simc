@@ -3504,9 +3504,9 @@ struct dispatch_t: public rogue_attack_t
   {
   }
 
-  double cost() const override
+  double cost_flat_modifier() const override
   {
-    double c = rogue_attack_t::cost();
+    double c = rogue_attack_t::cost_flat_modifier();
 
     if ( p()->buffs.summarily_dispatched->check() )
     {
@@ -3706,7 +3706,7 @@ struct blade_flurry_attack_t : public rogue_attack_t
     rogue_attack_t::available_targets( tl );
 
     // Cannot hit the original target.
-    tl.erase( std::remove_if( tl.begin(), tl.end(), [ this ]( player_t* t ) { return t == this->target; } ), tl.end() );
+    range::erase_remove( tl, target );
 
     return tl.size();
   }
@@ -4237,9 +4237,6 @@ struct eviscerate_t : public rogue_attack_t
     }
 
     bool procs_poison() const override
-    { return false; }
-
-    bool procs_shadow_blades_damage() const override
     { return false; }
   };
 
@@ -5033,9 +5030,6 @@ struct rupture_t : public rogue_attack_t
       snapshot_state( damage_state, result_amount_type::DMG_OVER_TIME );
       trigger_secondary_action( damage_state, 1_s );
     }
-
-    bool procs_shadow_blades_damage() const override
-    { return false; }
   };
 
   replicating_shadows_tick_t* replicating_shadows_tick;
@@ -5650,8 +5644,7 @@ struct black_powder_t: public rogue_attack_t
       rogue_attack_t::available_targets( tl );
 
       // Can only hit targets with the Find Weakness debuff
-      tl.erase( std::remove_if( tl.begin(), tl.end(), [ this ]( player_t* t ) {
-        return !this->td( t )->debuffs.find_weakness->check(); } ), tl.end() );
+      range::erase_remove( tl, [ this ]( player_t* t ) { return !td( t )->debuffs.find_weakness->check(); } );
 
       return tl.size();
     }
@@ -5696,9 +5689,6 @@ struct black_powder_t: public rogue_attack_t
 
     bool procs_poison() const override
     { return false; }
-
-    bool procs_shadow_blades_damage() const override
-    { return false; }
   };
 
   black_powder_bonus_t* bonus_attack;
@@ -5732,29 +5722,31 @@ struct black_powder_t: public rogue_attack_t
 
     rogue_attack_t::execute();
 
-    if ( p()->spec.finality_black_powder_buff->ok() )
+    // BUG: Finality BP seems to affect every instance of shadow damage due to, err, spaghetti with the bonus attack trigger order and travel time?
+    // See https://github.com/SimCMinMax/WoW-BugTracker/issues/747
+    bool triggered_finality = false;
+    if ( p()->spec.finality_black_powder_buff->ok() && !p()->buffs.finality_black_powder->check() )
     {
-      if ( p()->buffs.finality_black_powder->check() )
-        p()->buffs.finality_black_powder->expire();
-      else
-        p()->buffs.finality_black_powder->trigger();
+      p()->buffs.finality_black_powder->trigger();
+      triggered_finality = true;
+    }
+
+    if ( bonus_attack )
+    {
+      bonus_attack->last_cp = cast_state( execute_state )->get_combo_points();
+      bonus_attack->execute_on_target( execute_state->target );
+    }
+
+    // See bug above.
+    if ( !triggered_finality )
+    {
+      p()->buffs.finality_black_powder->expire();
     }
 
     if ( p()->set_bonuses.t29_subtlety_2pc->ok() )
     {
       p()->buffs.t29_subtlety_2pc->expire();
       p()->buffs.t29_subtlety_2pc->trigger( cast_state( execute_state )->get_combo_points() );
-    }
-  }
-
-  void impact( action_state_t* state ) override
-  {
-    rogue_attack_t::impact( state );
-
-    if ( bonus_attack && state->chain_target == 0 )
-    {
-      bonus_attack->last_cp = cast_state( state )->get_combo_points();
-      bonus_attack->execute_on_target( state->target );
     }
   }
 
@@ -6319,7 +6311,7 @@ struct caustic_spatter_t : public rogue_attack_t
     rogue_attack_t::available_targets( tl );
 
     // Cannot hit the original target.
-    tl.erase( std::remove_if( tl.begin(), tl.end(), [ this ]( player_t* t ) { return t == this->target; } ), tl.end() );
+    range::erase_remove( tl, target );
 
     return tl.size();
   }
@@ -6859,6 +6851,8 @@ struct weapon_swap_t : public action_t
       rogue -> swap_weapon( WEAPON_MAIN_HAND, swap_to_type );
       rogue -> swap_weapon( WEAPON_OFF_HAND, swap_to_type );
     }
+
+    rogue->invalidate_cache( CACHE_WEAPON_DPS );
   }
 
   bool ready() override

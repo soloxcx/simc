@@ -986,18 +986,12 @@ struct pause_action_t : public action_t
 
   timespan_t execute_time() const override
   {
-    timespan_t duration = sim->rng().gauss( base_execute_time, duration_stddev );
-
-    duration = clamp( duration, duration_min, duration_max );
-
-    return duration;
+    return sim->rng().gauss_ab( base_execute_time, duration_stddev, duration_min, duration_max );
   }
 
   void update_ready( timespan_t /* cd_duration */ ) override
   {
-    timespan_t cd = sim->rng().gauss( cooldown->duration, cooldown_stddev );
-
-    cd = clamp( cd, cooldown_min, cooldown_max );
+    timespan_t cd = sim->rng().gauss_ab( cooldown->duration, cooldown_stddev, cooldown_min, cooldown_max );
 
     action_t::update_ready( cd );
   }
@@ -1178,6 +1172,7 @@ struct tank_dummy_enemy_t : public enemy_t
 
   void init() override
   {
+    enemy_t::init();
     tank_dummy_enum = convert_tank_dummy_string( tank_dummy_str );
     // Try parsing the name
     if ( tank_dummy_enum == tank_dummy_e::NONE )
@@ -1445,14 +1440,15 @@ void enemy_t::init_target()
 
 // enemy_t::init_actions ====================================================
 
+// default provided to be overloaded for tank_dummy_enemy_t::generate_action_list()
 std::string enemy_t::generate_action_list()
 {
-  return generate_tank_action_list( tank_dummy_e::MYTHIC );
+  return "/";
 }
 
 void enemy_t::generate_heal_raid_event()
 {
-  add_tank_heal_raid_event( tank_dummy_e::HEROIC );
+  // add_tank_heal_raid_event( tank_dummy_e::HEROIC );
 }
 
 std::string enemy_t::generate_tank_action_list( tank_dummy_e tank_dummy )
@@ -1496,7 +1492,7 @@ void enemy_t::add_tank_heal_raid_event( tank_dummy_e tank_dummy )
   //                                           NONE, WEAK, DUNGEON, RAID,  HEROIC, MYTHIC
   std::array<int, numTankDummies> heal_value = { 0, 12000, 24000, 36000, 48000, 60000 };
   size_t tank_dummy_index                    = static_cast<size_t>( tank_dummy );
-  std::string heal_raid_event = fmt::format( "heal,name=tank_heal,amount={},period=0.5,duration=0,player_if=role.tank",
+  std::string heal_raid_event = fmt::format( "heal,name=tank_heal,amount={},cooldown=0.5,duration=0,player_if=role.tank",
                                              heal_value[ tank_dummy_index ] );
   sim->raid_events_str += "/" + heal_raid_event;
   std::string::size_type cut_pt = heal_raid_event.find_first_of( ',' );
@@ -1512,6 +1508,16 @@ void enemy_t::add_tank_heal_raid_event( tank_dummy_e tank_dummy )
   {
     throw std::invalid_argument( "Cooldown lower than cooldown standard deviation." );
   }
+
+  if ( raid_event->cooldown_min == timespan_t::zero() )
+    raid_event->cooldown_min = raid_event->cooldown * 0.5;
+  if ( raid_event->cooldown_max == timespan_t::zero() )
+    raid_event->cooldown_max = raid_event->cooldown * 1.5;
+
+  if ( raid_event->duration_min == timespan_t::zero() )
+    raid_event->duration_min = raid_event->duration * 0.5;
+  if ( raid_event->duration_max == timespan_t::zero() )
+    raid_event->duration_max = raid_event->duration * 1.5;
 
   sim->print_debug( "Successfully created '{}'.", *( raid_event.get() ) );
   sim->raid_events.push_back( std::move( raid_event ) );

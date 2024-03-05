@@ -379,7 +379,7 @@ void chilled_clarity( special_effect_t& effect )
     return;
 
   auto buff = create_buff<buff_t>( effect.player, effect.trigger() );
-  buff->set_default_value_from_effect_type( A_355 )
+  buff->set_default_value_from_effect_type( A_HASTE_SPELLS )
       ->set_duration( timespan_t::from_seconds( effect.driver()->effectN( 1 ).base_value() ) )
       ->set_duration_multiplier( inhibitor_mul( effect.player ) );
 
@@ -1351,8 +1351,7 @@ void darkmoon_deck_watcher( special_effect_t& effect )
       shield->trigger( dur );
 
       // TODO: placeholder value put at 2s before depletion. change to reasonable value.
-      auto deplete = rng().gauss( sim->dragonflight_opts.darkmoon_deck_watcher_deplete, 1_s );
-      clamp( deplete, 0_ms, dur );
+      auto deplete = rng().gauss_ab( sim->dragonflight_opts.darkmoon_deck_watcher_deplete, 1_s, 0_s, dur );
 
       make_event( *sim, deplete, [ this ]() { shield->expire(); } );
     }
@@ -2087,6 +2086,8 @@ void spoils_of_neltharus( special_effect_t& effect )
   };
 
   effect.execute_action = create_proc_action<spoils_of_neltharus_t>( "spoils_of_neltharus", effect );
+  effect.disable_buff();
+  effect.stat = STAT_ANY_DPS;
 }
 
 void sustaining_alchemist_stone( special_effect_t& effect )
@@ -2562,9 +2563,9 @@ void decoration_of_flame( special_effect_t& effect )
 
       auto& tl = proc_spell_t::target_list();
 
-      tl.erase( std::remove_if( tl.begin(), tl.end(), [ this ]( player_t* ) {
+      range::erase_remove( tl, [ this ]( player_t* ) {
         return rng().roll( sim->dragonflight_opts.decoration_of_flame_miss_chance );
-      } ), tl.end() );
+      } );
 
       return tl;
     }
@@ -2628,7 +2629,8 @@ void manic_grieftorch( special_effect_t& effect )
     size_t available_targets( std::vector< player_t* >& tl ) const override
     {
     proc_spell_t::available_targets( tl );
-    tl.erase( std::remove_if( tl.begin(), tl.end(), [ this ]( player_t* t) {
+
+    range::erase_remove( tl, [ this ]( player_t* t) {
          if( t == target )
         {
           return false;
@@ -2638,7 +2640,7 @@ void manic_grieftorch( special_effect_t& effect )
           // Has very strange scaling behavior, where it scales with targets very slowly. Using this formula to reduce the cleave chance as target count increases
              return !rng().roll(0.2 * (sqrt(num_targets()) / num_targets()) );
         }
-      }), tl.end() );
+      });
 
       return tl.size();
     }
@@ -3866,10 +3868,9 @@ void iceblood_deathsnare( special_effect_t& effect )
 
       auto& tl = proc_spell_t::target_list();
 
-      tl.erase( std::remove_if(
-                    tl.begin(), tl.end(),
-                    [ this ]( player_t* t ) { return !player->get_target_data( t )->debuff.crystalline_web->up(); } ),
-                tl.end() );
+      range::erase_remove( tl, [ this ]( player_t* t ) {
+        return !player->get_target_data( t )->debuff.crystalline_web->up();
+      } );
 
       return tl;
     }
@@ -6561,6 +6562,8 @@ void nymues_unraveling_spindle( special_effect_t& effect )
   }
 
   effect.execute_action = create_proc_action<nymues_channel_t>( "essence_splice", effect, buff );
+  effect.disable_buff();
+  effect.stat = STAT_MASTERY_RATING;
 }
 
 // Augury of the Primal Flame
@@ -7944,11 +7947,13 @@ void fyralath_the_dream_render( special_effect_t& e )
   struct explosive_rage_t : public generic_proc_t
   {
     buff_t* buff;
-    explosive_rage_t( const special_effect_t& effect, util::string_view n, const spell_data_t* s, buff_t* b )
+    action_t* dot;
+    explosive_rage_t( const special_effect_t& effect, util::string_view n, const spell_data_t* s, buff_t* b, action_t* a )
       : generic_proc_t( effect, n, s ),
-        buff( b )
+        buff( b ), dot( a )
     {
       background = proc = split_aoe_damage = true;
+      impact_action = dot;
     }
 
     double composite_da_multiplier( const action_state_t* state ) const override
@@ -7986,9 +7991,10 @@ void fyralath_the_dream_render( special_effect_t& e )
     action_t* damage;
     action_t* charge_impact;
     action_t* dot;
+    buff_t* buff;
     int current_tick;
     int n_ticks;
-    buff_t* buff;
+
     rage_channel_t( const special_effect_t& e, util::string_view n, action_t* dam, action_t* imp, action_t* d, buff_t* b )
       : proc_spell_t( n, e.player, e.player->find_spell( 417132 ), e.item ),
         damage( dam ),
@@ -7998,7 +8004,7 @@ void fyralath_the_dream_render( special_effect_t& e )
         current_tick( 0 ),
         n_ticks( data().duration() / data().effectN( 1 ).period() )
     {
-      channeled = true;
+      channeled = hasted_ticks = true;
       trigger_gcd = e.player->find_spell( 417131 )->gcd();
       target_cache.is_valid = false;
       add_child( damage );
@@ -8057,9 +8063,9 @@ void fyralath_the_dream_render( special_effect_t& e )
   auto buff = create_buff<buff_t>( e.player, "rage_of_fyralath", e.player->find_spell( 417138 ) );
   buff->set_default_value( e.player->find_spell( 420248 ) -> effectN( 1 ).percent() );
 
-  auto charge        = create_proc_action<rage_of_fyralath_t>( "rage_of_fyralath", e, "rage_of_fyralath", e.player->find_spell( 417134 ), buff );
-  auto charge_impact = create_proc_action<explosive_rage_t>( "explosive_rage", e, "explosive_rage", e.player->find_spell( 413584 ), buff );
   auto dot           = create_proc_action<generic_proc_t>( "mark_of_fyralath", e, "mark_of_fyralath", e.player->find_spell( 414532 ) );
+  auto charge        = create_proc_action<rage_of_fyralath_t>( "rage_of_fyralath", e, "rage_of_fyralath", e.player->find_spell( 417134 ), buff );
+  auto charge_impact = create_proc_action<explosive_rage_t>( "explosive_rage", e, "explosive_rage", e.player->find_spell( 413584 ), buff, dot );
   auto channel       = create_proc_action<rage_channel_t>( "rage_of_fyralath_channel", e, "rage_of_fyralath_channel", charge, charge_impact, dot, buff );
 
   auto driver            = new special_effect_t( e.player );
@@ -8073,6 +8079,50 @@ void fyralath_the_dream_render( special_effect_t& e )
   auto cb = new dbc_proc_callback_t( e.player, *driver );
   cb->initialize();
   cb->activate();
+
+  // Using a differnet spell id from the main proc for the scripted effects to prevent double procs
+  auto dummy_equip_id = 417138;
+  auto scripted_driver = new special_effect_t( e.player );
+  scripted_driver->type = SPECIAL_EFFECT_EQUIP;
+  scripted_driver->source = SPECIAL_EFFECT_SOURCE_ITEM;
+  scripted_driver->name_str = "mark_of_fyralath_scripted";
+  scripted_driver->proc_flags_ = PF_CAST_SUCCESSFUL;
+  scripted_driver->proc_flags2_ = PF2_ALL_HIT | PF2_LANDED;
+  scripted_driver->spell_id = dummy_equip_id;
+  scripted_driver->execute_action = dot;
+  e.player->special_effects.push_back( scripted_driver );
+
+  auto scripted_cb = new dbc_proc_callback_t( e.player, *scripted_driver );
+  scripted_cb->initialize();
+  scripted_cb->activate();
+
+  std::set<unsigned> proc_spell_id;
+  // List of all spell ids that can proc the DoT, that are not considered "melee" or "yellow melee".
+  // Appears to be specifically anything that applies a DoT or Debuff that can deal damage.
+
+  switch (e.player->specialization())
+  {
+    case DEATH_KNIGHT_BLOOD:
+      proc_spell_id = { 55078 };
+      break;
+    case DEATH_KNIGHT_FROST:
+      proc_spell_id = { 237680, 55095 };
+      break;
+    case DEATH_KNIGHT_UNHOLY:
+      // Commented spells are Unholy Blight, which still triggers 191587 resulting in the correct behavior
+      // This limits events at high target counts, but isnt exact to in game behavior.
+      proc_spell_id = { 196780, 191587, /*115989, 115994,*/ 194310, 390220, 390279, 197147 };
+      break;
+    default:
+      break;
+  }
+
+  scripted_driver->player->callbacks.register_callback_trigger_function(
+    dummy_equip_id, dbc_proc_callback_t::trigger_fn_type::CONDITION,
+    [ proc_spell_id ]( const dbc_proc_callback_t*, action_t* a, action_state_t* )
+    {
+      return range::contains( proc_spell_id, a->data().id() );
+    } );
 
   e.execute_action = channel;
 }
@@ -9747,7 +9797,7 @@ struct pestilent_plague_stone_aoe_t : public generic_aoe_proc_t
     generic_aoe_proc_t::available_targets( tl );
 
     // Remove the main target, this only hits everything else in range.
-    tl.erase( std::remove_if( tl.begin(), tl.end(), [ this ]( player_t* t ) { return t == this->target; } ), tl.end() );
+    range::erase_remove( tl, target );
 
     return tl.size();
   }

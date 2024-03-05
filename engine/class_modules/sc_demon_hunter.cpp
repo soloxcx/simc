@@ -384,19 +384,19 @@ public:
 
       player_talent_t shear_fury;
       player_talent_t fracture;
-      player_talent_t calcified_spikes;  // NYI
+      player_talent_t calcified_spikes;
       player_talent_t roaring_fire;      // NYI
       player_talent_t sigil_of_silence;  // Partial Implementation
       player_talent_t retaliation;
       player_talent_t meteoric_strikes;
 
       player_talent_t spirit_bomb;
-      player_talent_t feast_of_souls;  // NYI
+      player_talent_t feast_of_souls;
       player_talent_t agonizing_flames;
       player_talent_t extended_spikes;
       player_talent_t burning_blood;
       player_talent_t soul_barrier;     // NYI
-      player_talent_t bulk_extraction;  // NYI
+      player_talent_t bulk_extraction;
       player_talent_t revel_in_pain;    // NYI
 
       player_talent_t void_reaver;
@@ -531,6 +531,7 @@ public:
     const spell_data_t* demon_spikes;
     const spell_data_t* infernal_strike;
     const spell_data_t* soul_cleave;
+    const spell_data_t* shear;
 
     const spell_data_t* demonic_wards_2;
     const spell_data_t* demonic_wards_3;
@@ -539,6 +540,7 @@ public:
     const spell_data_t* riposte;
     const spell_data_t* soul_cleave_2;
     const spell_data_t* thick_skin;
+    const spell_data_t* demon_spikes_buff;
     const spell_data_t* painbringer_buff;
     const spell_data_t* calcified_spikes_buff;
     const spell_data_t* soul_furnace_damage_amp;
@@ -550,6 +552,13 @@ public:
     const spell_data_t* sigil_of_silence_debuff;
     const spell_data_t* sigil_of_chains;
     const spell_data_t* sigil_of_chains_debuff;
+    const spell_data_t* burning_alive_controller;
+    const spell_data_t* infernal_strike_impact;
+    const spell_data_t* spirit_bomb_damage;
+    const spell_data_t* frailty_heal;
+    const spell_data_t* feast_of_souls_heal;
+    const spell_data_t* fel_devastation_2;
+    const spell_data_t* fel_devastation_heal;
   } spec;
 
   // Set Bonus effects
@@ -568,6 +577,7 @@ public:
     const spell_data_t* t31_vengeance_2pc;
     const spell_data_t* t31_vengeance_4pc;
     // Auxilliary
+    const spell_data_t* t29_vengeance_4pc_debuff;
     const spell_data_t* t30_havoc_2pc_buff;
     const spell_data_t* t30_havoc_4pc_refund;
     const spell_data_t* t30_havoc_4pc_buff;
@@ -784,6 +794,7 @@ public:
   void init_rng() override;
   void init_scaling() override;
   void init_spells() override;
+  bool validate_fight_style( fight_style_e style ) const override;
   void invalidate_cache( cache_e ) override;
   resource_e primary_resource() const override;
   role_e primary_role() const override;
@@ -1129,15 +1140,16 @@ struct soul_fragment_t
     if ( ( activation && consume_on_activation ) || velocity == 0 )
       return timespan_t::zero();
 
-    // 2023-06-26 -- Recent testing appears to show a roughly fixed 1s activation time for Havoc
     if ( activation )
     {
+      // 2023-06-26 -- Recent testing appears to show a roughly fixed 1s activation time for Havoc
       if ( dh->specialization() == DEMON_HUNTER_HAVOC )
       {
         return 1_s;
       }
-      // 2023-07-27 -- Recent testing appears to show a roughly 0.85s activation time for Vengeance
-      return 850_ms;
+      // 2024-02-12 -- Recent testing appears to show a roughly 0.76s activation time for Vengeance
+      //               with some slight variance
+      return dh->rng().gauss( 760_ms, 120_ms );
     }
 
     double distance = get_distance( dh );
@@ -2216,7 +2228,7 @@ struct soul_cleave_heal_t : public demon_hunter_heal_t
   struct feast_of_souls_heal_t : public demon_hunter_heal_t
   {
     feast_of_souls_heal_t( util::string_view name, demon_hunter_t* p )
-      : demon_hunter_heal_t( name, p, p->find_spell( 207693 ) )
+      : demon_hunter_heal_t( name, p, p->spec.feast_of_souls_heal )
     {
       dual = true;
     }
@@ -2241,7 +2253,7 @@ struct soul_cleave_heal_t : public demon_hunter_heal_t
 
 struct frailty_heal_t : public demon_hunter_heal_t
 {
-  frailty_heal_t( demon_hunter_t* p ) : demon_hunter_heal_t( "frailty_heal", p, p->find_spell( 227255 ) )
+  frailty_heal_t( demon_hunter_t* p ) : demon_hunter_heal_t( "frailty_heal", p, p->spec.frailty_heal )
   {
     background = true;
     may_crit   = false;
@@ -2682,6 +2694,11 @@ struct fel_devastation_t : public demon_hunter_spell_t
     {
       add_child( p->active.collective_anguish );
     }
+
+    if ( p->spec.fel_devastation_2->ok() )
+    {
+      heal = p->get_background_action<heals::fel_devastation_heal_t>( "fel_devastation_heal" );
+    }
   }
 
   void execute() override
@@ -2701,6 +2718,12 @@ struct fel_devastation_t : public demon_hunter_spell_t
     {
       p()->active.collective_anguish->set_target( target );
       p()->active.collective_anguish->execute();
+    }
+
+    if ( heal )
+    {
+      heal->set_target( player );
+      heal->execute();
     }
   }
 
@@ -2808,7 +2831,7 @@ struct fiery_brand_t : public demon_hunter_spell_t
       // Spread radius used for Burning Alive.
       if ( p->talent.vengeance.burning_alive->ok() )
       {
-        radius = p->find_spell( 207760 )->effectN( 1 ).radius_max();
+        radius = p->spec.burning_alive_controller->effectN( 1 ).radius_max();
       }
     }
 
@@ -3203,7 +3226,7 @@ struct infernal_strike_t : public demon_hunter_spell_t
     sigil_of_flame_damage_t* sigil;
 
     infernal_strike_impact_t( util::string_view name, demon_hunter_t* p )
-      : demon_hunter_spell_t( name, p, p->find_spell( 189112 ) ), sigil( nullptr )
+      : demon_hunter_spell_t( name, p, p->spec.infernal_strike_impact ), sigil( nullptr )
     {
       background = dual = true;
       aoe               = -1;
@@ -3868,7 +3891,7 @@ struct spirit_bomb_t : public demon_hunter_spell_t
   struct spirit_bomb_damage_t : public demon_hunter_spell_t
   {
     spirit_bomb_damage_t( util::string_view name, demon_hunter_t* p )
-      : demon_hunter_spell_t( name, p, p->find_spell( 247455 ) )
+      : demon_hunter_spell_t( name, p, p->spec.spirit_bomb_damage )
     {
       background = dual   = true;
       aoe                 = -1;
@@ -4502,8 +4525,7 @@ struct blade_dance_base_t : public demon_hunter_attack_t
       if ( p()->talent.havoc.first_blood->ok() && !from_first_blood )
       {
         // Ensure the non-First Blood AoE spell doesn't hit the primary target
-        tl.erase( std::remove_if( tl.begin(), tl.end(), [ this ]( player_t* t ) { return t == this->target; } ),
-                  tl.end() );
+        range::erase_remove( tl, target );
       }
 
       return tl.size();
@@ -5534,7 +5556,7 @@ struct inner_demon_t : public demon_hunter_spell_t
 struct shear_t : public demon_hunter_attack_t
 {
   shear_t( demon_hunter_t* p, util::string_view options_str )
-    : demon_hunter_attack_t( "shear", p, p->find_specialization_spell( "Shear" ), options_str )
+    : demon_hunter_attack_t( "shear", p, p->spec.shear, options_str )
   {
   }
 
@@ -5641,7 +5663,6 @@ struct soul_cleave_t : public demon_hunter_attack_t
       : demon_hunter_attack_t( name, p, s )
     {
       dual = true;
-      aoe  = data().effectN( 2 ).base_value();
     }
 
     action_state_t* new_state() override
@@ -5668,14 +5689,6 @@ struct soul_cleave_t : public demon_hunter_attack_t
       if ( result_is_hit( s->result ) && p()->talent.vengeance.void_reaver->ok() )
       {
         td( s->target )->debuffs.frailty->trigger();
-      }
-      // Soul Cleave applies a stack of Frailty to the primary target if Soulcrush is talented,
-      // doesn't need to hit.
-      if ( s->chain_target == 0 && p()->talent.vengeance.soulcrush->ok() )
-      {
-        td( s->target )
-            ->debuffs.frailty->trigger(
-                timespan_t::from_seconds( p()->talent.vengeance.soulcrush->effectN( 2 ).base_value() ) );
       }
 
       if ( debug_cast<soul_cleave_state_t*>( s )->t29_vengeance_4pc_proc )
@@ -5748,8 +5761,16 @@ struct soul_cleave_t : public demon_hunter_attack_t
       heal->execute();
     }
 
+    // Soul Cleave applies a stack of Frailty to the primary target if Soulcrush is talented,
+    // doesn't need to hit.
+    if ( p()->talent.vengeance.soulcrush->ok() )
+    {
+      td( target )->debuffs.frailty->trigger(
+          timespan_t::from_seconds( p()->talent.vengeance.soulcrush->effectN( 2 ).base_value() ) );
+    }
+
     // Soul fragments consumed are capped for Soul Cleave
-    p()->consume_soul_fragments( soul_fragment::ANY, true, (unsigned)data().effectN( 3 ).base_value() );
+    p()->consume_soul_fragments( soul_fragment::ANY, true, static_cast<unsigned>( data().effectN( 3 ).base_value() ) );
   }
 };
 
@@ -6366,7 +6387,7 @@ struct demon_spikes_t : public demon_hunter_buff_t<buff_t>
   const timespan_t max_duration;
 
   demon_spikes_t( demon_hunter_t* p )
-    : base_t( *p, "demon_spikes", p->find_spell( 203819 ) ),
+    : base_t( *p, "demon_spikes", p->spec.demon_spikes_buff ),
       max_duration( base_buff_duration * 3 )  // Demon Spikes can only be extended to 3x its base duration
   {
     set_default_value_from_effect_type( A_MOD_PARRY_PERCENT );
@@ -6552,7 +6573,7 @@ demon_hunter_td_t::demon_hunter_td_t( player_t* target, demon_hunter_t& p )
                           ->apply_affecting_aura( p.talent.vengeance.soulcrush );
     debuffs.t29_vengeance_4pc =
         make_buff( *this, "decrepit_souls",
-                   p.set_bonuses.t29_vengeance_4pc->ok() ? p.find_spell( 394958 ) : spell_data_t::not_found() )
+                   p.set_bonuses.t29_vengeance_4pc->ok() ? p.set_bonuses.t29_vengeance_4pc_debuff : spell_data_t::not_found() )
             ->set_default_value_from_effect( 1 )
             ->set_refresh_behavior( buff_refresh_behavior::DURATION );
   }
@@ -7443,6 +7464,7 @@ void demon_hunter_t::init_spells()
   spec.demon_spikes        = find_specialization_spell( "Demon Spikes" );
   spec.infernal_strike     = find_specialization_spell( "Infernal Strike" );
   spec.soul_cleave         = find_specialization_spell( "Soul Cleave" );
+  spec.shear               = find_specialization_spell( "Shear" );
   spec.soul_cleave_2       = find_rank_spell( "Soul Cleave", "Rank 2" );
   spec.riposte             = find_specialization_spell( "Riposte" );
   spec.soul_fragments_buff = find_spell( 203981, DEMON_HUNTER_VENGEANCE );
@@ -7676,6 +7698,7 @@ void demon_hunter_t::init_spells()
   spec.chaotic_disposition_damage =
       talent.havoc.chaotic_disposition->ok() ? find_spell( 428493 ) : spell_data_t::not_found();
 
+  spec.demon_spikes_buff  = find_spell( 203819 );
   spec.fiery_brand_debuff = talent.vengeance.fiery_brand->ok() ? find_spell( 207771 ) : spell_data_t::not_found();
   spec.frailty_debuff     = talent.vengeance.frailty->ok() ? find_spell( 247456 ) : spell_data_t::not_found();
   spec.painbringer_buff   = talent.vengeance.painbringer->ok() ? find_spell( 212988 ) : spell_data_t::not_found();
@@ -7688,6 +7711,14 @@ void demon_hunter_t::init_spells()
       talent.vengeance.sigil_of_silence->ok() ? find_spell( 204490 ) : spell_data_t::not_found();
   spec.sigil_of_chains_debuff =
       talent.vengeance.sigil_of_chains->ok() ? find_spell( 204843 ) : spell_data_t::not_found();
+  spec.burning_alive_controller =
+      talent.vengeance.burning_alive->ok() ? find_spell( 207760 ) : spell_data_t::not_found();
+  spec.infernal_strike_impact = find_spell( 189112 );
+  spec.spirit_bomb_damage     = talent.vengeance.spirit_bomb->ok() ? find_spell( 247455 ) : spell_data_t::not_found();
+  spec.frailty_heal           = talent.vengeance.frailty->ok() ? find_spell( 227255 ) : spell_data_t::not_found();
+  spec.feast_of_souls_heal  = talent.vengeance.feast_of_souls->ok() ? find_spell( 207693 ) : spell_data_t::not_found();
+  spec.fel_devastation_2    = find_rank_spell( "Fel Devastation", "Rank 2" );
+  spec.fel_devastation_heal = talent.vengeance.fel_devastation->ok() ? find_spell( 212106 ) : spell_data_t::not_found();
 
   // Sigil overrides for Precise/Concentrated Sigils
   std::vector<const spell_data_t*> sigil_overrides = { talent.demon_hunter.precise_sigils };
@@ -7732,6 +7763,7 @@ void demon_hunter_t::init_spells()
   set_bonuses.t31_vengeance_4pc = sets->set( DEMON_HUNTER_VENGEANCE, T31, B4 );
 
   // Set Bonus Auxilliary
+  set_bonuses.t29_vengeance_4pc_debuff = set_bonuses.t29_vengeance_4pc->ok() ? find_spell( 394958 ) : spell_data_t::not_found();
   set_bonuses.t30_havoc_2pc_buff   = set_bonuses.t30_havoc_2pc->ok() ? find_spell( 408737 ) : spell_data_t::not_found();
   set_bonuses.t30_havoc_4pc_buff   = set_bonuses.t30_havoc_4pc->ok() ? find_spell( 408754 ) : spell_data_t::not_found();
   set_bonuses.t30_havoc_4pc_refund = set_bonuses.t30_havoc_4pc->ok() ? find_spell( 408757 ) : spell_data_t::not_found();
@@ -7840,6 +7872,24 @@ void demon_hunter_t::init_spells()
         "throw_glaive_ds_throw", "", throw_glaive_t::glaive_source::DEATH_SWEEP_THROW );
     active.throw_glaive_ds_throw = throw_glaive_ds_throw;
   }
+}
+
+// demon_hunter_t::validate_fight_style =====================================
+
+bool demon_hunter_t::validate_fight_style( fight_style_e style ) const
+{
+  if ( specialization() == DEMON_HUNTER_VENGEANCE )
+  {
+    switch ( style )
+    {
+    case FIGHT_STYLE_DUNGEON_ROUTE:
+    case FIGHT_STYLE_DUNGEON_SLICE:
+      return false;
+    default:
+      return true;
+    }
+  }
+  return true;
 }
 
 // demon_hunter_t::invalidate_cache =========================================

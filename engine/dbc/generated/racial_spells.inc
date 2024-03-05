@@ -1,5 +1,7 @@
-// Racial abilities, wow build 10.2.0.52649
-static const std::array<racial_spell_entry_t, 161> __racial_spell_data { {
+#pragma warning(push)
+#pragma warning(once: 4305)
+// Racial abilities, wow build 10.2.5.53584
+static const std::array<racial_spell_entry_t, 163> __racial_spell_data { {
   { 0x0000000000000001, 0x00000000,  20599, "Diplomacy"                          },
   { 0x0000000000000001, 0x00000000,  20598, "The Human Spirit"                   },
   { 0x0000000000000001, 0x00000000,  59752, "Will to Survive"                    },
@@ -97,6 +99,8 @@ static const std::array<racial_spell_entry_t, 161> __racial_spell_data { {
   { 0x0000000000018000, 0x00000000, 365575, "Awakened"                           },
   { 0x0000000000018000, 0x00000000, 360022, "Chosen Identity"                    },
   { 0x0000000000018000, 0x00000000, 366489, "Discerning Eye"                     },
+  { 0x0000000000018000, 0x00000000, 430846, "Empowered Soaring"                  },
+  { 0x0000000000018000, 0x00000000, 430935, "Expedited Takeoff"                  },
   { 0x0000000000018000, 0x00000000, 360009, "Familiar Skies"                     },
   { 0x0000000000018000, 0x00000000, 358731, "Glide"                              },
   { 0x0000000000018000, 0x00000000, 358733, "Glide"                              },
@@ -163,3 +167,4 @@ static const std::array<racial_spell_entry_t, 161> __racial_spell_data { {
   { 0x0000000080000000, 0x00000000, 291417, "Rime of the Ancient Mariner"        },
 } };
 
+#pragma warning(pop)
