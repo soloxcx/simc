@@ -1784,6 +1784,10 @@ class SpellDataGenerator(DataGenerator):
             ( 459002, 0 ),          # Outlaw 11.0 Set Bonus damage spell
             ( 467059, 0 ),          # Outlaw Crackshot Dispatch clone damage spell
             ( 1219264, 0 ),         # Assassination TWW2 4pc set bonus buff spell
+            
+            # Midnight
+            # Roll the bones buffs
+            ( 1214933, 0 ), ( 1214934, 0 ), ( 1214935 , 0 ),
         ),
 
         # Priest:

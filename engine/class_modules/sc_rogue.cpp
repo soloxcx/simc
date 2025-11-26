@@ -399,7 +399,7 @@ public:
     buff_t* envenom;
     // Outlaw
     buffs::rogue_buff_t* adrenaline_rush;
-    buff_t* between_the_eyes;
+    damage_buff_t* between_the_eyes;
     buffs::rogue_buff_t* blade_flurry;
     buff_t* blade_rush;
     buff_t* opportunity;
@@ -983,6 +983,8 @@ public:
       player_talent_t keep_it_rolling;
       player_talent_t ghostly_strike;
       player_talent_t greenskins_wickers;
+
+      player_talent_t expert_duelist;
 
     } outlaw;
 
@@ -3934,9 +3936,9 @@ struct between_the_eyes_t : public rogue_attack_t
     {
       const auto rs = cast_state( execute_state );
       const int cp_spend = rs->get_combo_points();
+      timespan_t base_dur = p()->spec.between_the_eyes->duration();
 
-      // There is nothing about the buff duration in spell data, so we have to hardcode the 3s base.
-      p()->buffs.between_the_eyes->trigger( 3_s * cp_spend );
+      p()->buffs.between_the_eyes->trigger( base_dur + ( base_dur * cp_spend ) );
 
       if ( p()->spec.greenskins_wickers->ok() &&
            rng().roll( p()->spec.greenskins_wickers->effectN( 1 ).percent() * cp_spend ) )
@@ -11154,6 +11156,8 @@ void rogue_t::init_spells()
   talent.outlaw.ghostly_strike = find_talent_spell( talent_tree::SPECIALIZATION, "Ghostly Strike" );
   talent.outlaw.greenskins_wickers = find_talent_spell( talent_tree::SPECIALIZATION, "Greenskin's Wickers" );
 
+  talent.outlaw.expert_duelist = find_talent_spell( talent_tree::SPECIALIZATION, "Expert Duelist" );
+
   // Subtlety Talents
   talent.subtlety.find_weakness = find_talent_spell( talent_tree::SPECIALIZATION, "Find Weakness" );
 
@@ -11953,11 +11957,13 @@ void rogue_t::create_buffs()
 
   // Outlaw =================================================================
 
-  buffs.between_the_eyes = make_buff<stat_buff_t>( this, "between_the_eyes", spec.between_the_eyes )
+  buffs.between_the_eyes = make_buff<damage_buff_t>( this, "between_the_eyes", spec.between_the_eyes );
+  buffs.between_the_eyes
     ->set_cooldown( timespan_t::zero() )
-    ->set_default_value_from_effect_type( A_MOD_ALL_CRIT_CHANCE )
-    ->set_pct_buff_type( STAT_PCT_BUFF_CRIT )
-    ->set_refresh_behavior( buff_refresh_behavior::MAX );
+    ->set_stack_behavior( buff_stack_behavior::ASYNCHRONOUS );
+
+  buffs.between_the_eyes->set_direct_mod( spec.between_the_eyes->effectN( 4 ).percent() );
+
   buffs.adrenaline_rush = new buffs::adrenaline_rush_t( this );
   buffs.blade_flurry = new buffs::blade_flurry_t( this );
 
