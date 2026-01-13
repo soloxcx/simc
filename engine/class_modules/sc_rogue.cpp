@@ -10564,7 +10564,7 @@ void rogue_t::create_buffs()
                                                 1.0 + spell.fatebound_coin_heads_buff->effectN( 4 ).percent() );
     buffs.fatebound_coin_heads->set_periodic_mod( spell.fatebound_coin_heads_buff, 2, spell.fatebound_coin_heads_buff->effectN( 2 ).percent(),
                                                   1.0 + spell.fatebound_coin_heads_buff->effectN( 4 ).percent() );
-    buffs.fatebound_coin_heads->set_auto_attack_mod( spell.fatebound_coin_heads_buff, 5, spell.fatebound_coin_heads_buff->effectN( 5 ).percent(),
+    buffs.fatebound_coin_heads->set_auto_attack_mod( spell.fatebound_coin_heads_buff, 5, spell.fatebound_coin_heads_buff->effectN( 3 ).percent(),
                                                      1.0 + spell.fatebound_coin_heads_buff->effectN( 4 ).percent() );
   }
 
