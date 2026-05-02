@@ -2506,8 +2506,8 @@ public:
 
     if ( affected_by.fazed_crit_chance && td( target )->debuffs.fazed->check() )
     {
-      c += td( target )->debuffs.fazed->stack_value_crit_chance();
-    }
+        c += td( target )->debuffs.fazed->stack_value_crit_chance();
+      }
 
     return c;
   }
@@ -2565,7 +2565,7 @@ public:
     if ( affected_by.fazed_crit_damage )
     {
       cm *= 1.0 + p()->talent.trickster.surprising_strikes->effectN( 1 ).percent() * td( target )->debuffs.fazed->check();
-    }
+      }
 
     return cm;
   }
@@ -4582,6 +4582,9 @@ struct killing_spree_tick_t : public rogue_attack_t
   { return false; }
 
   bool procs_blade_flurry() const override
+  { return true; }
+
+  bool procs_poison() const override
   { return true; }
 };
 
