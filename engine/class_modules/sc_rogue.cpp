@@ -3762,6 +3762,8 @@ struct dispatch_t: public rogue_attack_t
 
 struct between_the_eyes_t : public rogue_attack_t
 {
+  bool gravedigger_1_activated = false;
+
   between_the_eyes_t( util::string_view name, rogue_t* p, util::string_view options_str = {} ) :
     rogue_attack_t( name, p, p->spec.between_the_eyes, options_str )
   {
@@ -3793,7 +3795,7 @@ struct between_the_eyes_t : public rogue_attack_t
       // 2026-01-04 -- Updated from 3x CP spend to 2s base + 2s per CP
       p()->buffs.between_the_eyes->trigger( data().duration() * ( cp_spend + 1 ) );
 
-      if ( p()->talent.outlaw.gravedigger_1->ok() && rng().roll( p()->talent.outlaw.gravedigger_1->effectN( 1 ).percent() ) )
+      if ( gravedigger_1_activated )
       {
         p()->buffs.between_the_eyes->trigger( data().duration() * ( cp_spend + 1 ) );
       }
@@ -3819,6 +3821,33 @@ struct between_the_eyes_t : public rogue_attack_t
 
     p()->buffs.zero_in->expire();
     p()->buffs.gravedigger->expire();
+  }
+
+  void snapshot_state( action_state_t* state, result_amount_type rt ) override
+  {
+    rogue_attack_t::snapshot_state( state, rt );
+
+    // 2026-05-06 -- Gravedigger 1 proc causes Supercharger to be consumed without benefiting from the extra CPs
+    // For now we can just roll the proc inside snapshot instead of execute...
+    gravedigger_1_activated = false;
+
+    if ( p()->talent.outlaw.gravedigger_1->ok() && rng().roll( p()->talent.outlaw.gravedigger_1->effectN( 1 ).percent() ) )
+    {
+      gravedigger_1_activated = true;
+
+      if ( p()->bugs )
+      {
+        auto rs = cast_state( state );
+        auto base_cps = rs->get_combo_points( true );
+
+        if ( rs->get_combo_points() > base_cps ) 
+        {
+          sim->print_log("gravedigger bug activated");
+          rs->set_combo_points( base_cps, base_cps );
+          consume_supercharger( state );
+        }
+      }
+    }
   }
 
   bool procs_poison() const override
@@ -7546,9 +7575,13 @@ void actions::rogue_action_t<Base>::spend_combo_points( const action_state_t* st
 
   p()->sim->print_log( "{} consumes {} {} for {} ({})", *p(), max_spend, util::resource_type_string( RESOURCE_COMBO_POINT ),
                        *this, p()->current_cp() );
-  // Remove Supercharger Buffs
-  consume_supercharger( state );
 
+  if ( rs->get_combo_points() > rs->get_combo_points( true ) )
+  {
+    // Remove Supercharger Buffs
+    consume_supercharger( state );
+  }
+  
   // MIDNIGHT TOCHECK -- Does this use Supercharger CP?
   if ( p()->talent.assassination.deadly_momentum->ok() &&
        p()->rng().roll( p()->talent.assassination.deadly_momentum->effectN( 1 ).percent() * rs->get_combo_points() ) )
@@ -8652,18 +8685,15 @@ void actions::rogue_action_t<Base>::consume_supercharger( const action_state_t* 
 
   const auto rs = cast_state( state );
 
-  if ( rs->get_combo_points() > rs->get_combo_points( true ) )
+  // Consume from the end of the list
+  for ( auto it = p()->buffs.supercharger.rbegin(); it != p()->buffs.supercharger.rend(); ++it )
   {
-    // Consume from the end of the list
-    for ( auto it = p()->buffs.supercharger.rbegin(); it != p()->buffs.supercharger.rend(); ++it )
+    if ( ( *it )->check() )
     {
-      if ( ( *it )->check() )
-      {
-        ( *it )->expire();
-        supercharged_cp_proc->occur();
-        p()->buffs.echoing_reprimand->trigger();
-        break;
-      }
+      ( *it )->expire();
+      supercharged_cp_proc->occur();
+      p()->buffs.echoing_reprimand->trigger();
+      break;
     }
   }
 }
